@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # 3proxy Manager Web Service (Development)
+  auth-proxy:
+    build: .
+    container_name: auth-proxy-manager-dev
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - ./config:/app/config
+      - ./logs:/app/logs
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - proxy-network
+    command: ["python", "app.py"]
+
+  # 3proxy Server (Development)
+  proxy-server:
+    image: alpine:latest
+    container_name: 3proxy-server-dev
+    command: |
+      sh -c "
+        apk add --no-cache 3proxy &&
+        echo 'daemon' > /etc/3proxy/3proxy.cfg &&
+        echo 'maxconn 100' >> /etc/3proxy/3proxy.cfg &&
+        echo 'nserver 8.8.8.8' >> /etc/3proxy/3proxy.cfg &&
+        echo 'nserver 8.8.4.4' >> /etc/3proxy/3proxy.cfg &&
+        echo 'auth strong' >> /etc/3proxy/3proxy.cfg &&
+        echo 'users admin:CL:admin123' >> /etc/3proxy/3proxy.cfg &&
+        echo 'allow admin' >> /etc/3proxy/3proxy.cfg &&
+        echo 'proxy -p3128 -a' >> /etc/3proxy/3proxy.cfg &&
+        3proxy /etc/3proxy/3proxy.cfg
+      "
+    ports:
+      - "3128:3128"
+    volumes:
+      - ./config:/etc/3proxy:ro
+    restart: unless-stopped
+    networks:
+      - proxy-network
+    depends_on:
+      - auth-proxy
+
+networks:
+  proxy-network:
+    driver: bridge

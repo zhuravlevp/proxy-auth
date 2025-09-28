@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}Управление 3proxy{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1><i class="fas fa-cogs"></i> Управление 3proxy</h1>
+        <p class="text-muted">Управление конфигурацией прокси сервера</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <!-- Информация о текущем IP -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-globe"></i> Текущий IP адрес</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-primary fs-6 me-3" id="current-ip">{{ current_ip }}</span>
+                    <button class="btn btn-outline-primary btn-sm" onclick="refreshCurrentIP()">
+                        <i class="fas fa-sync-alt"></i> Обновить
+                    </button>
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-success" onclick="allowCurrentIP()">
+                        <i class="fas fa-plus"></i> Разрешить подключения с текущего IP
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление прокси -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-server"></i> Управление прокси</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-warning" onclick="restartProxy()">
+                        <i class="fas fa-redo"></i> Перезапустить прокси
+                    </button>
+                    <button class="btn btn-info" onclick="refreshAllowedIPs()">
+                        <i class="fas fa-sync-alt"></i> Обновить список
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Список разрешенных IP -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="fas fa-list"></i> Разрешенные IP адреса</h5>
+                <span class="badge bg-secondary" id="ip-count">{{ allowed_ips|length }} IP</span>
+            </div>
+            <div class="card-body">
+                <div id="allowed-ips-list">
+                    {% if allowed_ips %}
+                        {% for ip in allowed_ips %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
+                            <div>
+                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <code>{{ ip }}</code>
+                            </div>
+                            <button class="btn btn-outline-danger btn-sm" onclick="removeIP('{{ ip }}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-info-circle"></i> Нет разрешенных IP адресов
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ручное добавление IP -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-plus"></i> Добавить IP вручную</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <input type="text" class="form-control" id="manual-ip" placeholder="Введите IP адрес (например: 192.168.1.100)">
+                    </div>
+                    <div class="col-md-4">
+                        <button class="btn btn-primary w-100" onclick="addManualIP()">
+                            <i class="fas fa-plus"></i> Добавить
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function refreshCurrentIP() {
+    $.get('/api/current_ip', function(data) {
+        $('#current-ip').text(data.ip);
+    });
+}
+
+function allowCurrentIP() {
+    const currentIP = $('#current-ip').text();
+    addIP(currentIP);
+}
+
+function addManualIP() {
+    const ip = $('#manual-ip').val().trim();
+    if (ip) {
+        addIP(ip);
+        $('#manual-ip').val('');
+    } else {
+        alert('Введите IP адрес');
+    }
+}
+
+function addIP(ip) {
+    $.ajax({
+        url: '/allow_ip',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ip: ip}),
+        success: function(response) {
+            if (response.success) {
+                showAlert('success', response.message);
+                refreshAllowedIPs();
+            } else {
+                showAlert('danger', response.message);
+            }
+        },
+        error: function() {
+            showAlert('danger', 'Ошибка при добавлении IP');
+        }
+    });
+}
+
+function removeIP(ip) {
+    if (confirm('Удалить IP ' + ip + ' из разрешенных?')) {
+        // Здесь можно добавить API для удаления IP
+        showAlert('info', 'Функция удаления IP будет добавлена в следующей версии');
+    }
+}
+
+function refreshAllowedIPs() {
+    $.get('/api/allowed_ips', function(data) {
+        const container = $('#allowed-ips-list');
+        const count = $('#ip-count');
+        
+        if (data.ips.length === 0) {
+            container.html('<div class="text-center text-muted py-3"><i class="fas fa-info-circle"></i> Нет разрешенных IP адресов</div>');
+        } else {
+            let html = '';
+            data.ips.forEach(function(ip) {
+                html += '<div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">';
+                html += '<div><i class="fas fa-check-circle text-success me-2"></i><code>' + ip + '</code></div>';
+                html += '<button class="btn btn-outline-danger btn-sm" onclick="removeIP(\'' + ip + '\')"><i class="fas fa-trash"></i></button>';
+                html += '</div>';
+            });
+            container.html(html);
+        }
+        
+        count.text(data.ips.length + ' IP');
+    });
+}
+
+function restartProxy() {
+    if (confirm('Перезапустить прокси сервер?')) {
+        $.post('/restart_proxy', function(response) {
+            if (response.success) {
+                showAlert('success', response.message);
+            } else {
+                showAlert('danger', response.message);
+            }
+        }).fail(function() {
+            showAlert('danger', 'Ошибка при перезапуске прокси сервера');
+        });
+    }
+}
+
+function showAlert(type, message) {
+    const alertHtml = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
+                     message +
+                     '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                     '</div>';
+    $('.container').prepend(alertHtml);
+    
+    // Автоматически скрыть через 5 секунд
+    setTimeout(function() {
+        $('.alert').fadeOut();
+    }, 5000);
+}
+
+// Обновляем IP при загрузке страницы
+$(document).ready(function() {
+    refreshCurrentIP();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3proxy Manager - Клиент</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .card { border: none; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .btn-primary { background: linear-gradient(45deg, #667eea, #764ba2); border: none; }
+        .btn-success { background: linear-gradient(45deg, #56ab2f, #a8e6cf); border: none; }
+        .status-indicator { width: 12px; height: 12px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .status-online { background-color: #28a745; }
+        .status-offline { background-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid d-flex align-items-center justify-content-center min-vh-100">
+        <div class="row w-100">
+            <div class="col-12 col-md-8 col-lg-6 mx-auto">
+                <div class="card">
+                    <div class="card-header text-center bg-primary text-white">
+                        <h3><i class="fas fa-shield-alt"></i> 3proxy Manager</h3>
+                        <p class="mb-0">Управление прокси сервером</p>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- Текущий IP -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="d-flex align-items-center justify-content-between p-3 bg-light rounded">
+                                    <div>
+                                        <h6 class="mb-1"><i class="fas fa-globe text-primary"></i> Ваш IP адрес</h6>
+                                        <code id="current-ip" class="fs-5">Загрузка...</code>
+                                    </div>
+                                    <button class="btn btn-outline-primary btn-sm" onclick="refreshIP()">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Основные действия -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-success btn-lg" onclick="allowCurrentIP()" id="allow-btn">
+                                        <i class="fas fa-plus-circle"></i> Разрешить подключения с моего IP
+                                    </button>
+                                    <button class="btn btn-outline-info" onclick="checkStatus()">
+                                        <i class="fas fa-info-circle"></i> Проверить статус
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Статус -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="alert alert-info" id="status-alert" style="display: none;">
+                                    <i class="fas fa-info-circle"></i> <span id="status-text"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Разрешенные IP -->
+                        <div class="row">
+                            <div class="col-12">
+                                <h6><i class="fas fa-list"></i> Разрешенные IP адреса</h6>
+                                <div id="allowed-ips" class="bg-light p-3 rounded" style="min-height: 100px;">
+                                    <div class="text-center text-muted">
+                                        <i class="fas fa-spinner fa-spin"></i> Загрузка...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ручное добавление IP -->
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <h6><i class="fas fa-plus"></i> Добавить IP вручную</h6>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="manual-ip" placeholder="Введите IP адрес">
+                                    <button class="btn btn-primary" onclick="addManualIP()">
+                                        <i class="fas fa-plus"></i> Добавить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer text-center text-muted">
+                        <small><i class="fas fa-server"></i> 3proxy Management Service</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        const API_BASE = 'http://localhost:5000';
+        
+        // Получение текущего IP
+        function refreshIP() {
+            $.get(API_BASE + '/api/current_ip')
+                .done(function(data) {
+                    $('#current-ip').text(data.ip);
+                })
+                .fail(function() {
+                    $('#current-ip').text('Ошибка загрузки');
+                });
+        }
+
+        // Разрешить текущий IP
+        function allowCurrentIP() {
+            const currentIP = $('#current-ip').text();
+            if (currentIP && currentIP !== 'Загрузка...' && currentIP !== 'Ошибка загрузки') {
+                addIP(currentIP);
+            } else {
+                showStatus('Сначала загрузите IP адрес', 'warning');
+            }
+        }
+
+        // Добавить IP вручную
+        function addManualIP() {
+            const ip = $('#manual-ip').val().trim();
+            if (ip) {
+                addIP(ip);
+                $('#manual-ip').val('');
+            } else {
+                showStatus('Введите IP адрес', 'warning');
+            }
+        }
+
+        // Добавление IP
+        function addIP(ip) {
+            $.ajax({
+                url: API_BASE + '/allow_ip',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ip: ip}),
+                success: function(response) {
+                    if (response.success) {
+                        showStatus(response.message, 'success');
+                        loadAllowedIPs();
+                    } else {
+                        showStatus(response.message, 'danger');
+                    }
+                },
+                error: function() {
+                    showStatus('Ошибка соединения с сервером', 'danger');
+                }
+            });
+        }
+
+        // Загрузка списка разрешенных IP
+        function loadAllowedIPs() {
+            $.get(API_BASE + '/api/allowed_ips')
+                .done(function(data) {
+                    const container = $('#allowed-ips');
+                    if (data.ips.length === 0) {
+                        container.html('<div class="text-center text-muted"><i class="fas fa-info-circle"></i> Нет разрешенных IP</div>');
+                    } else {
+                        let html = '';
+                        data.ips.forEach(function(ip) {
+                            html += '<div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-white rounded border">';
+                            html += '<div><i class="fas fa-check-circle text-success me-2"></i><code>' + ip + '</code></div>';
+                            html += '<button class="btn btn-outline-danger btn-sm" onclick="removeIP(\'' + ip + '\')"><i class="fas fa-trash"></i></button>';
+                            html += '</div>';
+                        });
+                        container.html(html);
+                    }
+                })
+                .fail(function() {
+                    $('#allowed-ips').html('<div class="text-center text-danger"><i class="fas fa-exclamation-triangle"></i> Ошибка загрузки</div>');
+                });
+        }
+
+        // Удаление IP (заглушка)
+        function removeIP(ip) {
+            if (confirm('Удалить IP ' + ip + '?')) {
+                showStatus('Функция удаления будет добавлена в следующей версии', 'info');
+            }
+        }
+
+        // Проверка статуса
+        function checkStatus() {
+            $.get(API_BASE + '/api/current_ip')
+                .done(function() {
+                    showStatus('Сервер доступен', 'success');
+                })
+                .fail(function() {
+                    showStatus('Сервер недоступен', 'danger');
+                });
+        }
+
+        // Показать статус
+        function showStatus(message, type) {
+            const alert = $('#status-alert');
+            const text = $('#status-text');
+            
+            alert.removeClass('alert-info alert-success alert-warning alert-danger')
+                 .addClass('alert-' + type)
+                 .show();
+            text.text(message);
+            
+            // Автоскрытие через 5 секунд
+            setTimeout(function() {
+                alert.fadeOut();
+            }, 5000);
+        }
+
+        // Инициализация при загрузке
+        $(document).ready(function() {
+            refreshIP();
+            loadAllowedIPs();
+            
+            // Автообновление каждые 30 секунд
+            setInterval(function() {
+                refreshIP();
+                loadAllowedIPs();
+            }, 30000);
+        });
+    </script>
+</body>
+</html>
