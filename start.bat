@@ -15,5 +15,5 @@ echo Пароль: admin123
 echo.
 echo Нажмите Ctrl+C для остановки
 echo ========================================
-python app.py
+python run.py
 pause
