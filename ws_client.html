@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Client - Auth Proxy</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.authenticated {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        #log {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 3px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry.error {
+            color: red;
+        }
+        .log-entry.success {
+            color: green;
+        }
+        .log-entry.info {
+            color: blue;
+        }
+        #ipList {
+            list-style: none;
+            padding: 0;
+        }
+        #ipList li {
+            padding: 8px;
+            margin: 5px 0;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Client - Auth Proxy</h1>
+        
+        <div id="connectionStatus" class="status disconnected">
+            Не подключено
+        </div>
+
+        <div class="section">
+            <h3>Подключение</h3>
+            <input type="text" id="wsUrl" value="ws://localhost:5000/ws" placeholder="WebSocket URL">
+            <button id="connectBtn" onclick="connect()">Подключиться</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Отключиться</button>
+        </div>
+
+        <div class="section">
+            <h3>Авторизация</h3>
+            <input type="text" id="username" placeholder="Имя пользователя" value="admin">
+            <input type="password" id="password" placeholder="Пароль" value="admin123">
+            <button id="authBtn" onclick="authenticate()" disabled>Авторизоваться</button>
+        </div>
+
+        <div class="section">
+            <h3>Операции с IP</h3>
+            <button onclick="getCurrentIp()" disabled id="getCurrentIpBtn">Получить текущий IP</button>
+            <button onclick="addCurrentIp()" disabled id="addCurrentIpBtn">Добавить текущий IP в разрешенные</button>
+            <div id="currentIpDisplay" style="margin: 10px 0; font-weight: bold;"></div>
+            
+            <hr>
+            
+            <input type="text" id="customIp" placeholder="Введите IP адрес">
+            <button onclick="addCustomIp()" disabled id="addCustomIpBtn">Добавить IP</button>
+            
+            <hr>
+            
+            <button onclick="getAllowedIps()" disabled id="getAllowedIpsBtn">Получить список разрешенных IP</button>
+            <ul id="ipList"></ul>
+        </div>
+
+        <div class="section">
+            <h3>Управление прокси</h3>
+            <button onclick="restartProxy()" disabled id="restartProxyBtn">Перезапустить прокси</button>
+        </div>
+
+        <div class="section">
+            <h3>Лог событий</h3>
+            <button onclick="clearLog()">Очистить лог</button>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isAuthenticated = false;
+        let currentIp = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('connectionStatus');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function updateButtons() {
+            const connected = ws && ws.readyState === WebSocket.OPEN;
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+            document.getElementById('authBtn').disabled = !connected || isAuthenticated;
+            
+            const canOperate = connected && isAuthenticated;
+            document.getElementById('getCurrentIpBtn').disabled = !canOperate;
+            document.getElementById('addCurrentIpBtn').disabled = !canOperate;
+            document.getElementById('addCustomIpBtn').disabled = !canOperate;
+            document.getElementById('getAllowedIpsBtn').disabled = !canOperate;
+            document.getElementById('restartProxyBtn').disabled = !canOperate;
+        }
+
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            log(`Подключение к ${url}...`, 'info');
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = () => {
+                log('WebSocket соединение установлено', 'success');
+                updateStatus('Подключено', 'connected');
+                updateButtons();
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`← Получено: ${JSON.stringify(data, null, 2)}`, 'info');
+                    
+                    if (data.type === 'auth_response') {
+                        if (data.success) {
+                            isAuthenticated = true;
+                            updateStatus(`Авторизован как ${data.user}`, 'authenticated');
+                            log(`Успешная авторизация как ${data.user}`, 'success');
+                        } else {
+                            log(`Ошибка авторизации: ${data.message}`, 'error');
+                        }
+                        updateButtons();
+                    } else if (data.type === 'current_ip_response') {
+                        currentIp = data.ip;
+                        document.getElementById('currentIpDisplay').textContent = `Текущий IP: ${data.ip}`;
+                        log(`Текущий IP: ${data.ip}`, 'success');
+                    } else if (data.type === 'add_ip_response') {
+                        if (data.success) {
+                            log(data.message, 'success');
+                        } else {
+                            log(data.message, 'error');
+                        }
+                    } else if (data.type === 'allowed_ips_response') {
+                        displayAllowedIps(data.ips);
+                        log(`Получено ${data.ips.length} разрешенных IP`, 'success');
+                    } else if (data.type === 'restart_proxy_response') {
+                        if (data.success) {
+                            log(data.message, 'success');
+                        } else {
+                            log(data.message, 'error');
+                        }
+                    } else if (data.type === 'error') {
+                        log(`Ошибка: ${data.message}`, 'error');
+                    }
+                } catch (e) {
+                    log(`Ошибка парсинга ответа: ${e.message}`, 'error');
+                }
+            };
+            
+            ws.onerror = (error) => {
+                log(`WebSocket ошибка: ${error}`, 'error');
+            };
+            
+            ws.onclose = () => {
+                log('WebSocket соединение закрыто', 'info');
+                updateStatus('Не подключено', 'disconnected');
+                isAuthenticated = false;
+                ws = null;
+                updateButtons();
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                log('Отключение...', 'info');
+            }
+        }
+
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const messageStr = JSON.stringify(message);
+                log(`→ Отправлено: ${messageStr}`, 'info');
+                ws.send(messageStr);
+            } else {
+                log('WebSocket не подключен', 'error');
+            }
+        }
+
+        function authenticate() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            sendMessage({
+                type: 'auth',
+                username: username,
+                password: password
+            });
+        }
+
+        function getCurrentIp() {
+            sendMessage({ type: 'get_current_ip' });
+        }
+
+        function addCurrentIp() {
+            if (!currentIp) {
+                getCurrentIp();
+                setTimeout(() => {
+                    if (currentIp) {
+                        sendMessage({
+                            type: 'add_ip',
+                            ip: currentIp
+                        });
+                    }
+                }, 1000);
+            } else {
+                sendMessage({
+                    type: 'add_ip',
+                    ip: currentIp
+                });
+            }
+        }
+
+        function addCustomIp() {
+            const ip = document.getElementById('customIp').value;
+            if (!ip) {
+                log('Введите IP адрес', 'error');
+                return;
+            }
+            
+            sendMessage({
+                type: 'add_ip',
+                ip: ip
+            });
+        }
+
+        function getAllowedIps() {
+            sendMessage({ type: 'get_allowed_ips' });
+        }
+
+        function displayAllowedIps(ips) {
+            const list = document.getElementById('ipList');
+            list.innerHTML = '';
+            
+            if (ips.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'Нет разрешенных IP адресов';
+                list.appendChild(li);
+            } else {
+                ips.forEach(ip => {
+                    const li = document.createElement('li');
+                    li.textContent = ip;
+                    list.appendChild(li);
+                });
+            }
+        }
+
+        function restartProxy() {
+            if (confirm('Вы уверены, что хотите перезапустить прокси сервер?')) {
+                sendMessage({ type: 'restart_proxy' });
+            }
+        }
+
+        // Инициализация
+        updateButtons();
+    </script>
+</body>
+</html>
+
