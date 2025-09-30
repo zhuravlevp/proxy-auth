@@ -21,8 +21,8 @@ import bcrypt
 import aiohttp
 
 # Конфигурация
-CONFIG_FILE = '3proxy.cfg'
-ALLOWED_IPS_FILE = 'allowed_ips.txt'
+CONFIG_FILE = 'config/3proxy_ip.cfg'
+ALLOWED_IPS_FILE = 'config/allowed_ips.txt'
 
 class ProxyManager:
     def __init__(self):
@@ -42,22 +42,6 @@ class ProxyManager:
     def create_default_config(self):
         """Создает базовую конфигурацию 3proxy"""
         default_config = """# 3proxy configuration
-daemon
-maxconn 100
-nserver 8.8.8.8
-nserver 8.8.4.4
-
-# Authentication
-auth strong
-
-# Users
-users admin:CL:admin123
-
-# Access control
-allow admin
-
-# Proxy settings
-proxy -p3128 -a
 """
         with open(self.config_file, 'w') as f:
             f.write(default_config)
@@ -131,8 +115,8 @@ proxy -p3128 -a
         
         # Добавляем новые allow правила
         for ip in allowed_ips:
-            config_lines.append(f"allow {ip}")
-        
+            config_lines.append(f"allow * {ip}\n")
+            
         # Записываем обновленный конфиг
         content = "\n".join(config_lines) + "\n"
         async with aiofiles.open(self.config_file, 'w') as f:
