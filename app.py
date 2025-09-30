@@ -190,6 +190,8 @@ async def index(request):
 
 async def login(request):
     """Страница авторизации"""
+    session = await get_session(request)
+    
     if request.method == 'POST':
         data = await request.post()
         username = data.get('username')
@@ -200,11 +202,13 @@ async def login(request):
             session['user_id'] = username
             return web.HTTPFound('/')
         else:
+            session = await get_session(request)
             return render_template('login.html', request, {
-                'error': 'Неверные учетные данные!'
+                'error': 'Неверные учетные данные!',
+                'session': session
             })
     
-    return render_template('login.html', request, {})
+    return render_template('login.html', request, {'session': session})
 
 async def logout(request):
     """Выход из системы"""

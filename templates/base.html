@@ -33,7 +33,7 @@
             <a class="navbar-brand" href="/">
                 <i class="fas fa-shield-alt"></i> 3proxy Manager
             </a>
-            {% if request.session.user_id %}
+            {% if session.user_id %}
             <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="/logout">
                     <i class="fas fa-sign-out-alt"></i> Выход
