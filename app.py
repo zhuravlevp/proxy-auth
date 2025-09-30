@@ -12,7 +12,7 @@ import ipaddress
 import asyncio
 import aiofiles
 from datetime import datetime
-from aiohttp import web, ClientSession, ClientTimeout
+from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from aiohttp_session import setup, get_session, new_session, SimpleCookieStorage
 from aiohttp_cors import setup as cors_setup, ResourceOptions
 from aiohttp_jinja2 import setup as jinja_setup, render_template
@@ -246,6 +246,153 @@ async def restart_proxy(request):
     else:
         return web.json_response({'success': False, 'message': 'Ошибка при перезапуске прокси сервера'})
 
+async def websocket_handler(request):
+    """WebSocket обработчик для авторизации и управления IP"""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    
+    # Флаг авторизации для текущего WebSocket соединения
+    is_authenticated = False
+    authenticated_user = None
+    
+    try:
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    msg_type = data.get('type')
+                    
+                    # Обработка авторизации
+                    if msg_type == 'auth':
+                        username = data.get('username')
+                        password = data.get('password')
+                        
+                        if username in users and bcrypt.checkpw(password.encode('utf-8'), users[username]):
+                            is_authenticated = True
+                            authenticated_user = username
+                            await ws.send_json({
+                                'type': 'auth_response',
+                                'success': True,
+                                'message': 'Авторизация успешна',
+                                'user': username
+                            })
+                        else:
+                            await ws.send_json({
+                                'type': 'auth_response',
+                                'success': False,
+                                'message': 'Неверные учетные данные'
+                            })
+                    
+                    # Получение текущего IP
+                    elif msg_type == 'get_current_ip':
+                        if not is_authenticated:
+                            await ws.send_json({
+                                'type': 'error',
+                                'message': 'Требуется авторизация'
+                            })
+                            continue
+                        
+                        current_ip = await proxy_manager.get_current_ip()
+                        await ws.send_json({
+                            'type': 'current_ip_response',
+                            'success': True,
+                            'ip': current_ip
+                        })
+                    
+                    # Добавление IP в разрешенные
+                    elif msg_type == 'add_ip':
+                        if not is_authenticated:
+                            await ws.send_json({
+                                'type': 'error',
+                                'message': 'Требуется авторизация'
+                            })
+                            continue
+                        
+                        ip = data.get('ip')
+                        if not ip:
+                            await ws.send_json({
+                                'type': 'add_ip_response',
+                                'success': False,
+                                'message': 'IP адрес не указан'
+                            })
+                            continue
+                        
+                        if await proxy_manager.add_allowed_ip(ip):
+                            await ws.send_json({
+                                'type': 'add_ip_response',
+                                'success': True,
+                                'message': f'IP {ip} добавлен в разрешенные'
+                            })
+                        else:
+                            await ws.send_json({
+                                'type': 'add_ip_response',
+                                'success': False,
+                                'message': f'IP {ip} уже в списке или неверный формат'
+                            })
+                    
+                    # Получение списка разрешенных IP
+                    elif msg_type == 'get_allowed_ips':
+                        if not is_authenticated:
+                            await ws.send_json({
+                                'type': 'error',
+                                'message': 'Требуется авторизация'
+                            })
+                            continue
+                        
+                        allowed_ips = await proxy_manager.get_allowed_ips()
+                        await ws.send_json({
+                            'type': 'allowed_ips_response',
+                            'success': True,
+                            'ips': allowed_ips
+                        })
+                    
+                    # Перезапуск прокси
+                    elif msg_type == 'restart_proxy':
+                        if not is_authenticated:
+                            await ws.send_json({
+                                'type': 'error',
+                                'message': 'Требуется авторизация'
+                            })
+                            continue
+                        
+                        if await proxy_manager.restart_proxy():
+                            await ws.send_json({
+                                'type': 'restart_proxy_response',
+                                'success': True,
+                                'message': 'Прокси сервер перезапущен'
+                            })
+                        else:
+                            await ws.send_json({
+                                'type': 'restart_proxy_response',
+                                'success': False,
+                                'message': 'Ошибка при перезапуске прокси сервера'
+                            })
+                    
+                    else:
+                        await ws.send_json({
+                            'type': 'error',
+                            'message': f'Неизвестный тип сообщения: {msg_type}'
+                        })
+                
+                except json.JSONDecodeError:
+                    await ws.send_json({
+                        'type': 'error',
+                        'message': 'Неверный формат JSON'
+                    })
+                except Exception as e:
+                    await ws.send_json({
+                        'type': 'error',
+                        'message': f'Ошибка обработки запроса: {str(e)}'
+                    })
+            
+            elif msg.type == WSMsgType.ERROR:
+                print(f'WebSocket соединение закрыто с ошибкой: {ws.exception()}')
+    
+    finally:
+        print(f'WebSocket соединение закрыто для пользователя: {authenticated_user or "неавторизованный"}')
+    
+    return ws
+
 def create_app():
     """Создает и настраивает приложение"""
     app = web.Application()
@@ -279,6 +426,9 @@ def create_app():
     app.router.add_get('/api/current_ip', login_required(api_current_ip))
     app.router.add_get('/api/allowed_ips', login_required(api_allowed_ips))
     app.router.add_post('/restart_proxy', login_required(restart_proxy))
+    
+    # WebSocket маршрут
+    app.router.add_get('/ws', websocket_handler)
     
     # Настройка CORS для всех маршрутов (кроме статических)
     for route in list(app.router.routes()):
